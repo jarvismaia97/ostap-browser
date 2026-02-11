@@ -1,3 +1,4 @@
+import { X, Globe } from "lucide-react";
 import type { Tab } from "../hooks/useTabs";
 
 interface Props {
@@ -24,7 +25,7 @@ export default function TabItem({ tab, active, expanded, onSelect, onClose }: Pr
         {favicon ? (
           <img src={favicon} alt="" className="w-4 h-4 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         ) : (
-          <span className="text-xs">🌐</span>
+          <Globe size={14} className="text-txt-secondary" />
         )}
       </div>
 
@@ -34,9 +35,9 @@ export default function TabItem({ tab, active, expanded, onSelect, onClose }: Pr
           <span className="flex-1 truncate text-sm">{tab.title}</span>
           <button
             onClick={(e) => { e.stopPropagation(); onClose(); }}
-            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-border text-txt-secondary text-xs"
+            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-border text-txt-secondary transition-opacity"
           >
-            ×
+            <X size={12} />
           </button>
         </>
       )}

@@ -1,34 +1,34 @@
+import { useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Tab } from "../hooks/useTabs";
 import NewTabPage from "./NewTabPage";
 
 interface Props {
   tab: Tab;
+  onNavigate: (url: string) => void;
   onTitleChange: (title: string) => void;
 }
 
-export default function TabContent({ tab, onTitleChange }: Props) {
+export default function TabContent({ tab, onNavigate, onTitleChange }: Props) {
+  useEffect(() => {
+    if (tab.url !== "ostap://newtab" && tab.url.startsWith("http")) {
+      invoke("open_url", { url: tab.url, tabId: tab.id }).catch((err) => {
+        console.error("Failed to open URL:", err);
+      });
+    }
+  }, [tab.url, tab.id]);
+
   if (tab.url === "ostap://newtab") {
-    return <NewTabPage onNavigate={(url) => onTitleChange(url)} />;
+    return <NewTabPage onNavigate={onNavigate} />;
   }
 
   return (
-    <div className="flex-1 bg-white relative">
-      <iframe
-        key={tab.id + tab.url}
-        src={tab.url}
-        className="w-full h-full border-none"
-        sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-presentation"
-        title={tab.title}
-        onLoad={(e) => {
-          try {
-            const iframe = e.target as HTMLIFrameElement;
-            const title = iframe.contentDocument?.title;
-            if (title) onTitleChange(title);
-          } catch {
-            // Cross-origin, can't access title
-          }
-        }}
-      />
+    <div className="flex-1 flex items-center justify-center bg-bg">
+      <div className="text-center space-y-3">
+        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-txt-secondary text-sm">Opening in browser window...</p>
+        <p className="text-txt-secondary text-xs opacity-50">{tab.url}</p>
+      </div>
     </div>
   );
 }

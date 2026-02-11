@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Bot, X, Send } from "lucide-react";
 
 interface Props {
   onClose: () => void;
@@ -24,8 +25,13 @@ export default function JarvisPanel({ onClose }: Props) {
     <div className="w-80 bg-bg-sidebar border-l border-border flex flex-col h-full shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-sm font-medium text-txt">🤖 Jarvis AI</span>
-        <button onClick={onClose} className="text-txt-secondary hover:text-txt text-sm">✕</button>
+        <div className="flex items-center gap-2">
+          <Bot size={16} className="text-accent" />
+          <span className="text-sm font-medium text-txt">Jarvis AI</span>
+        </div>
+        <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-bg-panel text-txt-secondary transition-colors">
+          <X size={14} />
+        </button>
       </div>
 
       {/* Messages */}
@@ -54,10 +60,10 @@ export default function JarvisPanel({ onClose }: Props) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder="Ask Jarvis..."
-            className="flex-1 bg-bg-panel border border-border rounded-lg px-3 py-1.5 text-sm text-txt placeholder:text-txt-secondary focus:border-accent"
+            className="flex-1 bg-bg-panel border border-border rounded-lg px-3 py-1.5 text-sm text-txt placeholder:text-txt-secondary focus:border-accent focus:outline-none"
           />
-          <button onClick={handleSend} className="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90">
-            Send
+          <button onClick={handleSend} className="w-8 h-8 flex items-center justify-center bg-accent text-white rounded-lg hover:opacity-90 transition-opacity">
+            <Send size={14} />
           </button>
         </div>
       </div>
