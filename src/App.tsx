@@ -61,7 +61,12 @@ function App() {
           onToggleJarvis={() => setJarvisOpen(!jarvisOpen)}
           jarvisOpen={jarvisOpen}
         />
-        <TabContent tab={activeTab} onNavigate={handleNavigate} onTitleChange={(title) => updateTab(activeTabId, { title })} />
+        <TabContent
+          tab={activeTab}
+          onNavigate={handleNavigate}
+          onTitleChange={(title) => updateTab(activeTabId, { title })}
+          onUrlChange={(url) => updateTab(activeTabId, { url })}
+        />
       </div>
 
       {jarvisOpen && <JarvisPanel onClose={() => setJarvisOpen(false)} />}

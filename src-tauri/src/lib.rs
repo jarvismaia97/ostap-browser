@@ -1,5 +1,5 @@
-use tauri::{Manager, WebviewBuilder, WebviewUrl};
-use serde::Deserialize;
+use tauri::{Emitter, Manager, WebviewBuilder, WebviewUrl};
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 struct BrowseArea {
@@ -9,25 +9,38 @@ struct BrowseArea {
     height: f64,
 }
 
+#[derive(Clone, Serialize)]
+struct TabUpdate {
+    tab_id: String,
+    url: String,
+}
+
 #[tauri::command]
 fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: BrowseArea) -> Result<(), String> {
     let label = format!("browse-{}", tab_id);
     
-    // If webview already exists, just navigate it
     if let Some(webview) = app.get_webview(&label) {
         webview.navigate(url.parse().map_err(|e: url::ParseError| e.to_string())?)
             .map_err(|e| e.to_string())?;
         return Ok(());
     }
 
-    // Get the main Window
     let window = app.get_window("main").ok_or("No main window")?;
 
-    // Create embedded webview inside the main window
+    let app_handle = app.clone();
+    let tid = tab_id.clone();
     let webview_builder = WebviewBuilder::new(
         &label,
         WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
-    );
+    )
+    .on_page_load(move |_wv, payload| {
+        if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+            let _ = app_handle.emit("tab-updated", TabUpdate {
+                tab_id: tid.clone(),
+                url: payload.url().to_string(),
+            });
+        }
+    });
 
     window.add_child(
         webview_builder,
@@ -52,9 +65,11 @@ fn resize_tab(app: tauri::AppHandle, tab_id: String, area: BrowseArea) -> Result
 
 #[tauri::command]
 fn hide_all_tabs(app: tauri::AppHandle) -> Result<(), String> {
-    for (label, webview) in app.webview_windows() {
+    for label in app.webview_windows().keys() {
         if label.starts_with("browse-") {
-            let _ = webview.set_position(tauri::LogicalPosition::new(-9999.0, -9999.0));
+            if let Some(wv) = app.get_webview(label) {
+                let _ = wv.set_position(tauri::LogicalPosition::new(-9999.0, -9999.0));
+            }
         }
     }
     Ok(())
@@ -64,14 +79,14 @@ fn hide_all_tabs(app: tauri::AppHandle) -> Result<(), String> {
 fn show_tab(app: tauri::AppHandle, tab_id: String, area: BrowseArea) -> Result<(), String> {
     let label = format!("browse-{}", tab_id);
     
-    // Hide all browse webviews
-    for (l, webview) in app.webview_windows() {
-        if l.starts_with("browse-") && l != label {
-            let _ = webview.set_position(tauri::LogicalPosition::new(-9999.0, -9999.0));
+    for l in app.webview_windows().keys() {
+        if l.starts_with("browse-") && *l != label {
+            if let Some(wv) = app.get_webview(l) {
+                let _ = wv.set_position(tauri::LogicalPosition::new(-9999.0, -9999.0));
+            }
         }
     }
     
-    // Show the requested one
     if let Some(webview) = app.get_webview(&label) {
         webview.set_position(tauri::LogicalPosition::new(area.x, area.y))
             .map_err(|e| e.to_string())?;
