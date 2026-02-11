@@ -16,15 +16,32 @@ struct TabUpdate {
     title: String,
 }
 
+// No CSS invert needed — NSAppearance DarkAqua makes WKWebView report 
+// prefers-color-scheme:dark, so sites with native dark mode use it automatically.
+// For sites without dark mode, we apply a subtle invert only if the page is light.
 const DARK_THEME_JS: &str = r#"
 (function() {
-    if (document.getElementById('ostap-dark')) return;
-    var s = document.createElement('style');
-    s.id = 'ostap-dark';
-    s.textContent = 'html { filter: invert(0.9) hue-rotate(180deg) !important; background: #0a0a0a !important; } img, video, canvas, picture, [style*="background-image"], embed, object { filter: invert(1) hue-rotate(180deg) !important; }';
-    (document.head || document.documentElement).appendChild(s);
-    document.documentElement.style.setProperty('filter', 'invert(0.9) hue-rotate(180deg)', 'important');
-    document.documentElement.style.setProperty('background', '#0a0a0a', 'important');
+    if (window.__ostapDarkApplied) return;
+    window.__ostapDarkApplied = true;
+    function apply() {
+        if (document.getElementById('ostap-dark')) return;
+        var bg = getComputedStyle(document.documentElement).backgroundColor;
+        var bodyBg = document.body ? getComputedStyle(document.body).backgroundColor : '';
+        function luminance(c) {
+            var m = c.match(/\d+/g);
+            if (!m || m.length < 3) return 255;
+            return (parseInt(m[0]) * 299 + parseInt(m[1]) * 587 + parseInt(m[2]) * 114) / 1000;
+        }
+        // Only invert if both html and body are light
+        if (luminance(bg) > 150 && luminance(bodyBg) > 150) {
+            var s = document.createElement('style');
+            s.id = 'ostap-dark';
+            s.textContent = 'html { filter: invert(0.9) hue-rotate(180deg) !important; } img, video, canvas, picture, [style*="background-image"] { filter: invert(1) hue-rotate(180deg) !important; }';
+            document.head.appendChild(s);
+        }
+    }
+    if (document.readyState === 'complete') apply();
+    else window.addEventListener('load', apply);
 })();
 "#;
 
