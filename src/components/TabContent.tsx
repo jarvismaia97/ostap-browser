@@ -13,21 +13,19 @@ interface TabUpdate {
 
 interface Props {
   tab: Tab;
+  allTabs: Tab[];
   onNavigate: (url: string) => void;
   onTitleChange: (title: string) => void;
   onUrlChange: (url: string) => void;
 }
 
-export default function TabContent({ tab, onNavigate, onTitleChange, onUrlChange }: Props) {
+export default function TabContent({ tab, allTabs, onNavigate, onTitleChange, onUrlChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
 
   const getArea = useCallback(() => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    // Note: Tauri positions child webviews relative to the window content area
-    // which starts below the titlebar. getBoundingClientRect is relative to the
-    // main webview viewport, which already excludes the titlebar.
     return {
       x: Math.round(rect.left),
       y: Math.round(rect.top),
@@ -45,14 +43,15 @@ export default function TabContent({ tab, onNavigate, onTitleChange, onUrlChange
         setLoading(false);
       }
     });
-
     return () => { unlisten.then(fn => fn()); };
   }, [tab.id, onTitleChange, onUrlChange]);
 
-  // Navigate when URL changes
+  // Handle tab switching: show active, hide others
   useEffect(() => {
+    // Hide all browse tabs first
+    invoke("hide_all_tabs").catch(() => {});
+
     if (tab.url === "ostap://newtab" || !tab.url.startsWith("http")) {
-      invoke("hide_all_tabs").catch(() => {});
       return;
     }
 
@@ -60,14 +59,13 @@ export default function TabContent({ tab, onNavigate, onTitleChange, onUrlChange
     const timer = setTimeout(() => {
       const area = getArea();
       if (!area) return;
-      console.log("navigate_tab area:", JSON.stringify(area));
       invoke("navigate_tab", { url: tab.url, tabId: tab.id, area })
-        .then(() => console.log("navigate_tab OK"))
+        .then(() => setLoading(false))
         .catch((err) => {
           console.error("navigate_tab failed:", err);
           setLoading(false);
         });
-    }, 30);
+    }, 50);
 
     return () => clearTimeout(timer);
   }, [tab.url, tab.id, getArea]);
@@ -93,7 +91,7 @@ export default function TabContent({ tab, onNavigate, onTitleChange, onUrlChange
   return (
     <div ref={containerRef} className="flex-1 relative bg-bg">
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-bg/80 z-10 backdrop-blur-sm transition-opacity">
+        <div className="absolute inset-0 flex items-center justify-center bg-bg/80 z-10 backdrop-blur-sm">
           <Loader2 size={20} className="text-accent animate-spin" />
         </div>
       )}

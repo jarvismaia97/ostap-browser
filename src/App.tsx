@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useTabs } from "./hooks/useTabs";
 import Sidebar from "./components/Sidebar";
 import AddressBar from "./components/AddressBar";
@@ -20,6 +22,15 @@ function App() {
     }
   }, []);
 
+  // Listen for global shortcuts from Tauri (works even when child webview has focus)
+  useEffect(() => {
+    const unlisten = listen<string>("shortcut", (event) => {
+      if (event.payload === "new-tab") addTab();
+      else if (event.payload === "close-tab") handleCloseTab(activeTabId);
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [activeTabId, addTab]);
+
   const completeOnboarding = () => {
     localStorage.setItem(ONBOARDING_KEY, "true");
     setShowOnboarding(false);
@@ -37,6 +48,12 @@ function App() {
     updateTab(activeTabId, { url: finalUrl, title: finalUrl });
   };
 
+  const handleCloseTab = (id: string) => {
+    // Close the webview in Tauri
+    invoke("close_tab_webview", { tabId: id }).catch(() => {});
+    closeTab(id);
+  };
+
   return (
     <div className="flex h-screen w-screen bg-bg overflow-hidden">
       {showOnboarding && <Onboarding onComplete={completeOnboarding} />}
@@ -47,7 +64,7 @@ function App() {
         expanded={sidebarExpanded}
         onToggle={() => setSidebarExpanded(!sidebarExpanded)}
         onSelectTab={setActiveTab}
-        onCloseTab={closeTab}
+        onCloseTab={handleCloseTab}
         onNewTab={() => addTab()}
       />
 
@@ -55,14 +72,19 @@ function App() {
         <AddressBar
           url={activeTab.url.startsWith("ostap://") ? "" : activeTab.url}
           onNavigate={handleNavigate}
-          onBack={() => {/* TODO: history back */}}
-          onForward={() => {/* TODO: history forward */}}
-          onRefresh={() => updateTab(activeTabId, { url: activeTab.url })}
+          onBack={() => {}}
+          onForward={() => {}}
+          onRefresh={() => {
+            const url = activeTab.url;
+            updateTab(activeTabId, { url: "ostap://newtab" });
+            setTimeout(() => updateTab(activeTabId, { url }), 50);
+          }}
           onToggleJarvis={() => setJarvisOpen(!jarvisOpen)}
           jarvisOpen={jarvisOpen}
         />
         <TabContent
           tab={activeTab}
+          allTabs={tabs}
           onNavigate={handleNavigate}
           onTitleChange={(title) => updateTab(activeTabId, { title })}
           onUrlChange={(url) => updateTab(activeTabId, { url })}
