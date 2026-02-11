@@ -29,9 +29,16 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
 
     let app_handle = app.clone();
     let tid = tab_id.clone();
+    // Add dark mode param for Google
+    let mut final_url = url.clone();
+    if final_url.contains("google.com") && !final_url.contains("dark=1") {
+        let sep = if final_url.contains('?') { "&" } else { "?" };
+        final_url = format!("{}{}cs=1", final_url, sep);
+    }
+
     let webview_builder = WebviewBuilder::new(
         &label,
-        WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
+        WebviewUrl::External(final_url.parse().map_err(|e: url::ParseError| e.to_string())?),
     )
     .on_page_load(move |wv, payload| {
         if let tauri::webview::PageLoadEvent::Finished = payload.event() {
@@ -39,20 +46,32 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
                 tab_id: tid.clone(),
                 url: payload.url().to_string(),
             });
-            // Inject dark theme CSS
+            // Inject dark theme
             let _ = wv.eval(r#"
                 (function() {
-                    if (document.getElementById('ostap-dark-theme')) return;
+                    if (document.getElementById('ostap-dark')) return;
+                    // Force dark color scheme
+                    document.documentElement.style.colorScheme = 'dark';
+                    var m = document.querySelector('meta[name="color-scheme"]');
+                    if (m) m.content = 'dark';
+                    else {
+                        m = document.createElement('meta');
+                        m.name = 'color-scheme';
+                        m.content = 'dark';
+                        document.head.appendChild(m);
+                    }
+                    // Fallback: invert for sites without native dark mode
                     var s = document.createElement('style');
-                    s.id = 'ostap-dark-theme';
+                    s.id = 'ostap-dark';
                     s.textContent = `
-                        @media (prefers-color-scheme: light) {
+                        :root { color-scheme: dark !important; }
+                        @media not (prefers-color-scheme: dark) {
                             html {
-                                filter: invert(0.88) hue-rotate(180deg) !important;
+                                filter: invert(0.9) hue-rotate(180deg) !important;
                                 background: #0a0a0a !important;
                             }
-                            img, video, canvas, svg, [style*="background-image"],
-                            picture, iframe, embed, object {
+                            img, video, canvas, svg, picture,
+                            [style*="background-image"], iframe {
                                 filter: invert(1) hue-rotate(180deg) !important;
                             }
                         }
