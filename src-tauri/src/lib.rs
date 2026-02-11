@@ -22,13 +22,25 @@ const DARK_THEME_JS: &str = r#"
     var s = document.createElement('style');
     s.id = 'ostap-dark';
     s.textContent = 'html { filter: invert(0.9) hue-rotate(180deg) !important; background: #0a0a0a !important; } img, video, canvas, picture, [style*="background-image"], embed, object { filter: invert(1) hue-rotate(180deg) !important; }';
-    var target = document.head || document.documentElement;
-    target.appendChild(s);
-    // Also set inline style as fallback
+    (document.head || document.documentElement).appendChild(s);
     document.documentElement.style.setProperty('filter', 'invert(0.9) hue-rotate(180deg)', 'important');
     document.documentElement.style.setProperty('background', '#0a0a0a', 'important');
 })();
 "#;
+
+#[cfg(target_os = "macos")]
+fn force_dark_appearance() {
+    use objc::{msg_send, sel, sel_impl, class};
+    unsafe {
+        let app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
+        // Create NSString for "NSAppearanceNameDarkAqua"
+        let ns_string_class = class!(NSString);
+        let dark_name: *mut objc::runtime::Object = msg_send![ns_string_class, 
+            stringWithUTF8String: "NSAppearanceNameDarkAqua\0".as_ptr()];
+        let appearance: *mut objc::runtime::Object = msg_send![class!(NSAppearance), appearanceNamed: dark_name];
+        let _: () = msg_send![app, setAppearance: appearance];
+    }
+}
 
 #[tauri::command]
 fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: BrowseArea) -> Result<(), String> {
@@ -37,7 +49,6 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
     if let Some(webview) = app.get_webview(&label) {
         webview.navigate(url.parse().map_err(|e: url::ParseError| e.to_string())?)
             .map_err(|e| e.to_string())?;
-        // Re-inject dark theme after navigation
         let _ = webview.eval(DARK_THEME_JS);
         return Ok(());
     }
@@ -67,7 +78,6 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
                 });
                 let _ = wv.eval(DARK_THEME_JS);
             }
-            _ => {}
         }
     })
     .on_document_title_changed(move |_wv, title| {
@@ -124,6 +134,11 @@ fn close_tab_webview(app: tauri::AppHandle, tab_id: String) -> Result<(), String
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .setup(|_app| {
+            #[cfg(target_os = "macos")]
+            force_dark_appearance();
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![navigate_tab, resize_tab, hide_all_tabs, close_tab_webview])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
