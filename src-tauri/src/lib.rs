@@ -21,17 +21,12 @@ const DARK_THEME_JS: &str = r#"
     if (document.getElementById('ostap-dark')) return;
     var s = document.createElement('style');
     s.id = 'ostap-dark';
-    s.textContent = `
-        html {
-            filter: invert(0.9) hue-rotate(180deg) !important;
-            background: #0a0a0a !important;
-        }
-        img, video, canvas, picture, svg image,
-        [style*="background-image"], embed, object {
-            filter: invert(1) hue-rotate(180deg) !important;
-        }
-    `;
-    document.documentElement.appendChild(s);
+    s.textContent = 'html { filter: invert(0.9) hue-rotate(180deg) !important; background: #0a0a0a !important; } img, video, canvas, picture, [style*="background-image"], embed, object { filter: invert(1) hue-rotate(180deg) !important; }';
+    var target = document.head || document.documentElement;
+    target.appendChild(s);
+    // Also set inline style as fallback
+    document.documentElement.style.setProperty('filter', 'invert(0.9) hue-rotate(180deg)', 'important');
+    document.documentElement.style.setProperty('background', '#0a0a0a', 'important');
 })();
 "#;
 
@@ -60,14 +55,19 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
     )
     .initialization_script(DARK_THEME_JS)
     .on_page_load(move |wv, payload| {
-        if let tauri::webview::PageLoadEvent::Finished = payload.event() {
-            let _ = app_handle.emit("tab-updated", TabUpdate {
-                tab_id: tid.clone(),
-                url: payload.url().to_string(),
-                title: String::new(),
-            });
-            // Re-apply dark theme
-            let _ = wv.eval(DARK_THEME_JS);
+        match payload.event() {
+            tauri::webview::PageLoadEvent::Started => {
+                let _ = wv.eval(DARK_THEME_JS);
+            }
+            tauri::webview::PageLoadEvent::Finished => {
+                let _ = app_handle.emit("tab-updated", TabUpdate {
+                    tab_id: tid.clone(),
+                    url: payload.url().to_string(),
+                    title: String::new(),
+                });
+                let _ = wv.eval(DARK_THEME_JS);
+            }
+            _ => {}
         }
     })
     .on_document_title_changed(move |_wv, title| {
