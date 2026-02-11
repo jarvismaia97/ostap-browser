@@ -37,10 +37,8 @@ export default function TabContent({ tab, onNavigate, onTitleChange, onUrlChange
   useEffect(() => {
     const unlisten = listen<TabUpdate>("tab-updated", (event) => {
       if (event.payload.tab_id === tab.id) {
-        onUrlChange(event.payload.url);
-        if (event.payload.title && event.payload.title !== event.payload.url) {
-          onTitleChange(event.payload.title);
-        }
+        if (event.payload.url) onUrlChange(event.payload.url);
+        if (event.payload.title) onTitleChange(event.payload.title);
         setLoading(false);
       }
     });
