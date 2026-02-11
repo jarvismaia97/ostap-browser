@@ -16,48 +16,8 @@ struct TabUpdate {
     title: String,
 }
 
-// No CSS invert needed — NSAppearance DarkAqua makes WKWebView report 
-// prefers-color-scheme:dark, so sites with native dark mode use it automatically.
-// For sites without dark mode, we apply a subtle invert only if the page is light.
-const DARK_THEME_JS: &str = r#"
-(function() {
-    if (window.__ostapDarkApplied) return;
-    window.__ostapDarkApplied = true;
-    function apply() {
-        if (document.getElementById('ostap-dark')) return;
-        var bg = getComputedStyle(document.documentElement).backgroundColor;
-        var bodyBg = document.body ? getComputedStyle(document.body).backgroundColor : '';
-        function luminance(c) {
-            var m = c.match(/\d+/g);
-            if (!m || m.length < 3) return 255;
-            return (parseInt(m[0]) * 299 + parseInt(m[1]) * 587 + parseInt(m[2]) * 114) / 1000;
-        }
-        // Only invert if both html and body are light
-        if (luminance(bg) > 150 && luminance(bodyBg) > 150) {
-            var s = document.createElement('style');
-            s.id = 'ostap-dark';
-            s.textContent = 'html { filter: invert(0.9) hue-rotate(180deg) !important; } img, video, canvas, picture, [style*="background-image"] { filter: invert(1) hue-rotate(180deg) !important; }';
-            document.head.appendChild(s);
-        }
-    }
-    if (document.readyState === 'complete') apply();
-    else window.addEventListener('load', apply);
-})();
-"#;
-
-#[cfg(target_os = "macos")]
-fn force_dark_appearance() {
-    use objc::{msg_send, sel, sel_impl, class};
-    unsafe {
-        let app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
-        // Create NSString for "NSAppearanceNameDarkAqua"
-        let ns_string_class = class!(NSString);
-        let dark_name: *mut objc::runtime::Object = msg_send![ns_string_class, 
-            stringWithUTF8String: "NSAppearanceNameDarkAqua\0".as_ptr()];
-        let appearance: *mut objc::runtime::Object = msg_send![class!(NSAppearance), appearanceNamed: dark_name];
-        let _: () = msg_send![app, setAppearance: appearance];
-    }
-}
+// Simple CSS invert — always applied. NSAppearance didn't work on child webviews.
+const DARK_CSS: &str = "html{filter:invert(.9) hue-rotate(180deg)!important;background:#0a0a0a!important}img,video,canvas,picture,[style*=background-image]{filter:invert(1) hue-rotate(180deg)!important}";
 
 #[tauri::command]
 fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: BrowseArea) -> Result<(), String> {
@@ -66,7 +26,6 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
     if let Some(webview) = app.get_webview(&label) {
         webview.navigate(url.parse().map_err(|e: url::ParseError| e.to_string())?)
             .map_err(|e| e.to_string())?;
-        let _ = webview.eval(DARK_THEME_JS);
         return Ok(());
     }
 
@@ -76,16 +35,21 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
     let app_handle2 = app.clone();
     let tid = tab_id.clone();
     let tid2 = tab_id.clone();
+    let dark_css = DARK_CSS.to_string();
 
     let webview_builder = WebviewBuilder::new(
         &label,
         WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
     )
-    .initialization_script(DARK_THEME_JS)
     .on_page_load(move |wv, payload| {
         match payload.event() {
             tauri::webview::PageLoadEvent::Started => {
-                let _ = wv.eval(DARK_THEME_JS);
+                // Inject as early as possible
+                let js = format!(
+                    r#"(function(){{var s=document.createElement('style');s.id='ostap-d';s.textContent="{}";(document.head||document.documentElement).appendChild(s)}})();"#,
+                    dark_css
+                );
+                let _ = wv.eval(&js);
             }
             tauri::webview::PageLoadEvent::Finished => {
                 let _ = app_handle.emit("tab-updated", TabUpdate {
@@ -93,7 +57,12 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
                     url: payload.url().to_string(),
                     title: String::new(),
                 });
-                let _ = wv.eval(DARK_THEME_JS);
+                // Re-inject after page fully loaded
+                let js = format!(
+                    r#"(function(){{if(document.getElementById('ostap-d'))return;var s=document.createElement('style');s.id='ostap-d';s.textContent="{}";document.head.appendChild(s)}})();"#,
+                    dark_css
+                );
+                let _ = wv.eval(&js);
             }
         }
     })
@@ -105,11 +74,26 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
         });
     });
 
-    window.add_child(
+    let webview = window.add_child(
         webview_builder,
         tauri::LogicalPosition::new(area.x, area.y),
         tauri::LogicalSize::new(area.width, area.height),
     ).map_err(|e: tauri::Error| e.to_string())?;
+
+    // Also try setting dark appearance on the webview's NSView directly
+    #[cfg(target_os = "macos")]
+    {
+        let _ = webview.with_webview(|platform_wv| {
+            use objc::{msg_send, sel, sel_impl, class};
+            unsafe {
+                let wk_webview: *mut objc::runtime::Object = platform_wv.inner() as _;
+                let dark_name: *mut objc::runtime::Object = msg_send![class!(NSString),
+                    stringWithUTF8String: "NSAppearanceNameDarkAqua\0".as_ptr()];
+                let appearance: *mut objc::runtime::Object = msg_send![class!(NSAppearance), appearanceNamed: dark_name];
+                let _: () = msg_send![wk_webview, setAppearance: appearance];
+            }
+        });
+    }
 
     Ok(())
 }
@@ -151,9 +135,14 @@ fn close_tab_webview(app: tauri::AppHandle, tab_id: String) -> Result<(), String
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|_app| {
+        .setup(|app| {
+            // Force dark appearance on the main window
             #[cfg(target_os = "macos")]
-            force_dark_appearance();
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_theme(Some(tauri::Theme::Dark));
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![navigate_tab, resize_tab, hide_all_tabs, close_tab_webview])
