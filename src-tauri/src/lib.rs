@@ -33,12 +33,33 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
         &label,
         WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
     )
-    .on_page_load(move |_wv, payload| {
+    .on_page_load(move |wv, payload| {
         if let tauri::webview::PageLoadEvent::Finished = payload.event() {
             let _ = app_handle.emit("tab-updated", TabUpdate {
                 tab_id: tid.clone(),
                 url: payload.url().to_string(),
             });
+            // Inject dark theme CSS
+            let _ = wv.eval(r#"
+                (function() {
+                    if (document.getElementById('ostap-dark-theme')) return;
+                    var s = document.createElement('style');
+                    s.id = 'ostap-dark-theme';
+                    s.textContent = `
+                        @media (prefers-color-scheme: light) {
+                            html {
+                                filter: invert(0.88) hue-rotate(180deg) !important;
+                                background: #0a0a0a !important;
+                            }
+                            img, video, canvas, svg, [style*="background-image"],
+                            picture, iframe, embed, object {
+                                filter: invert(1) hue-rotate(180deg) !important;
+                            }
+                        }
+                    `;
+                    document.head.appendChild(s);
+                })();
+            "#);
         }
     });
 
