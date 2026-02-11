@@ -18,68 +18,20 @@ struct TabUpdate {
 
 const DARK_THEME_JS: &str = r#"
 (function() {
-    // Force dark color scheme on the document
-    document.documentElement.style.colorScheme = 'dark';
-    
-    // Add meta tag
-    var m = document.querySelector('meta[name="color-scheme"]');
-    if (!m) {
-        m = document.createElement('meta');
-        m.name = 'color-scheme';
-        m.content = 'dark';
-        document.head.appendChild(m);
-    } else {
-        m.content = 'dark';
-    }
-
-    // Force dark background + invert for light sites
-    if (!document.getElementById('ostap-dark')) {
-        var s = document.createElement('style');
-        s.id = 'ostap-dark';
-        s.textContent = `
-            :root { color-scheme: dark !important; }
-            html[data-ostap-dark] {
-                filter: invert(0.92) hue-rotate(180deg);
-                background: #0a0a0a !important;
-            }
-            html[data-ostap-dark] img,
-            html[data-ostap-dark] video,
-            html[data-ostap-dark] canvas,
-            html[data-ostap-dark] svg image,
-            html[data-ostap-dark] picture,
-            html[data-ostap-dark] [style*="background-image"] {
-                filter: invert(1) hue-rotate(180deg) !important;
-            }
-        `;
-        document.head.appendChild(s);
-    }
-
-    // Check if page has dark background already
-    function checkAndApply() {
-        var bg = getComputedStyle(document.documentElement).backgroundColor;
-        var body = document.body ? getComputedStyle(document.body).backgroundColor : 'rgb(255,255,255)';
-        
-        function isLight(color) {
-            var match = color.match(/\d+/g);
-            if (!match || match.length < 3) return true;
-            var r = parseInt(match[0]), g = parseInt(match[1]), b = parseInt(match[2]);
-            return (r * 299 + g * 587 + b * 114) / 1000 > 128;
+    if (document.getElementById('ostap-dark')) return;
+    var s = document.createElement('style');
+    s.id = 'ostap-dark';
+    s.textContent = `
+        html {
+            filter: invert(0.9) hue-rotate(180deg) !important;
+            background: #0a0a0a !important;
         }
-        
-        if (isLight(bg) || isLight(body)) {
-            document.documentElement.setAttribute('data-ostap-dark', '');
-        } else {
-            document.documentElement.removeAttribute('data-ostap-dark');
+        img, video, canvas, picture, svg image,
+        [style*="background-image"], embed, object {
+            filter: invert(1) hue-rotate(180deg) !important;
         }
-    }
-    
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() { setTimeout(checkAndApply, 100); });
-    } else {
-        setTimeout(checkAndApply, 100);
-    }
-    // Re-check after full load
-    window.addEventListener('load', function() { setTimeout(checkAndApply, 300); });
+    `;
+    document.documentElement.appendChild(s);
 })();
 "#;
 
