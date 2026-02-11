@@ -25,6 +25,9 @@ export default function TabContent({ tab, onNavigate, onTitleChange, onUrlChange
   const getArea = useCallback(() => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
+    // Note: Tauri positions child webviews relative to the window content area
+    // which starts below the titlebar. getBoundingClientRect is relative to the
+    // main webview viewport, which already excludes the titlebar.
     return {
       x: Math.round(rect.left),
       y: Math.round(rect.top),
@@ -57,7 +60,9 @@ export default function TabContent({ tab, onNavigate, onTitleChange, onUrlChange
     const timer = setTimeout(() => {
       const area = getArea();
       if (!area) return;
+      console.log("navigate_tab area:", JSON.stringify(area));
       invoke("navigate_tab", { url: tab.url, tabId: tab.id, area })
+        .then(() => console.log("navigate_tab OK"))
         .catch((err) => {
           console.error("navigate_tab failed:", err);
           setLoading(false);

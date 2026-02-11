@@ -1,4 +1,4 @@
-use tauri::{Emitter, Manager, WebviewBuilder, WebviewUrl};
+use tauri::{Emitter, Manager, WebviewWindowBuilder, WebviewUrl};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -16,54 +16,58 @@ struct TabUpdate {
     title: String,
 }
 
-// Simple CSS invert — always applied. NSAppearance didn't work on child webviews.
-const DARK_CSS: &str = "html{filter:invert(.9) hue-rotate(180deg)!important;background:#0a0a0a!important}img,video,canvas,picture,[style*=background-image]{filter:invert(1) hue-rotate(180deg)!important}";
-
 #[tauri::command]
 fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: BrowseArea) -> Result<(), String> {
     let label = format!("browse-{}", tab_id);
     
-    if let Some(webview) = app.get_webview(&label) {
-        webview.navigate(url.parse().map_err(|e: url::ParseError| e.to_string())?)
+    // If window already exists, just navigate it
+    if let Some(window) = app.get_webview_window(&label) {
+        window.navigate(url.parse().map_err(|e: url::ParseError| e.to_string())?)
             .map_err(|e| e.to_string())?;
+        // Reposition in case layout changed
+        let _ = window.set_position(tauri::LogicalPosition::new(area.x, area.y));
+        let _ = window.set_size(tauri::LogicalSize::new(area.width, area.height));
+        let _ = window.show();
         return Ok(());
     }
 
-    let window = app.get_window("main").ok_or("No main window")?;
+    // Get main window position to calculate absolute position
+    let main = app.get_webview_window("main").ok_or("No main window")?;
+    let main_pos = main.outer_position().map_err(|e| e.to_string())?;
+    
+    // Account for titlebar height (~28px on macOS)
+    let titlebar_h = 28.0;
+    let abs_x = main_pos.x as f64 + area.x;
+    let abs_y = main_pos.y as f64 + area.y + titlebar_h;
+
+    println!("navigate_tab: main_pos=({},{}) area=({},{},{},{}) abs=({},{})", 
+        main_pos.x, main_pos.y, area.x, area.y, area.width, area.height, abs_x, abs_y);
 
     let app_handle = app.clone();
     let app_handle2 = app.clone();
     let tid = tab_id.clone();
     let tid2 = tab_id.clone();
-    let dark_css = DARK_CSS.to_string();
 
-    let webview_builder = WebviewBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
+        &app,
         &label,
         WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
     )
+    .title("")
+    .inner_size(area.width, area.height)
+    .position(abs_x, abs_y)
+    .decorations(false)
+    .always_on_top(false)
+    .skip_taskbar(true)
+    .visible(true)
+    .focused(false)
     .on_page_load(move |wv, payload| {
-        match payload.event() {
-            tauri::webview::PageLoadEvent::Started => {
-                // Inject as early as possible
-                let js = format!(
-                    r#"(function(){{var s=document.createElement('style');s.id='ostap-d';s.textContent="{}";(document.head||document.documentElement).appendChild(s)}})();"#,
-                    dark_css
-                );
-                let _ = wv.eval(&js);
-            }
-            tauri::webview::PageLoadEvent::Finished => {
-                let _ = app_handle.emit("tab-updated", TabUpdate {
-                    tab_id: tid.clone(),
-                    url: payload.url().to_string(),
-                    title: String::new(),
-                });
-                // Re-inject after page fully loaded
-                let js = format!(
-                    r#"(function(){{if(document.getElementById('ostap-d'))return;var s=document.createElement('style');s.id='ostap-d';s.textContent="{}";document.head.appendChild(s)}})();"#,
-                    dark_css
-                );
-                let _ = wv.eval(&js);
-            }
+        if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+            let _ = app_handle.emit("tab-updated", TabUpdate {
+                tab_id: tid.clone(),
+                url: payload.url().to_string(),
+                title: String::new(),
+            });
         }
     })
     .on_document_title_changed(move |_wv, title| {
@@ -74,16 +78,15 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
         });
     });
 
-    let webview = window.add_child(
-        webview_builder,
-        tauri::LogicalPosition::new(area.x, area.y),
-        tauri::LogicalSize::new(area.width, area.height),
-    ).map_err(|e: tauri::Error| e.to_string())?;
+    // Set parent window
+    builder = builder.parent(&main).map_err(|e| e.to_string())?;
 
-    // Also try setting dark appearance on the webview's NSView directly
+    let window = builder.build().map_err(|e| e.to_string())?;
+
+    // Set dark appearance on the WKWebView
     #[cfg(target_os = "macos")]
     {
-        let _ = webview.with_webview(|platform_wv| {
+        let _ = window.with_webview(|platform_wv| {
             use objc::{msg_send, sel, sel_impl, class};
             unsafe {
                 let wk_webview: *mut objc::runtime::Object = platform_wv.inner() as _;
@@ -101,22 +104,23 @@ fn navigate_tab(app: tauri::AppHandle, url: String, tab_id: String, area: Browse
 #[tauri::command]
 fn resize_tab(app: tauri::AppHandle, tab_id: String, area: BrowseArea) -> Result<(), String> {
     let label = format!("browse-{}", tab_id);
-    if let Some(webview) = app.get_webview(&label) {
-        webview.set_position(tauri::LogicalPosition::new(area.x, area.y))
-            .map_err(|e| e.to_string())?;
-        webview.set_size(tauri::LogicalSize::new(area.width, area.height))
-            .map_err(|e| e.to_string())?;
+    if let Some(window) = app.get_webview_window(&label) {
+        let main = app.get_webview_window("main").ok_or("No main window")?;
+        let main_pos = main.outer_position().map_err(|e| e.to_string())?;
+        let titlebar_h = 28.0;
+        let abs_x = main_pos.x as f64 + area.x;
+        let abs_y = main_pos.y as f64 + area.y + titlebar_h;
+        let _ = window.set_position(tauri::LogicalPosition::new(abs_x, abs_y));
+        let _ = window.set_size(tauri::LogicalSize::new(area.width, area.height));
     }
     Ok(())
 }
 
 #[tauri::command]
 fn hide_all_tabs(app: tauri::AppHandle) -> Result<(), String> {
-    for label in app.webview_windows().keys() {
+    for (label, window) in app.webview_windows() {
         if label.starts_with("browse-") {
-            if let Some(wv) = app.get_webview(label) {
-                let _ = wv.set_position(tauri::LogicalPosition::new(-9999.0, -9999.0));
-            }
+            let _ = window.hide();
         }
     }
     Ok(())
@@ -125,8 +129,8 @@ fn hide_all_tabs(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn close_tab_webview(app: tauri::AppHandle, tab_id: String) -> Result<(), String> {
     let label = format!("browse-{}", tab_id);
-    if let Some(webview) = app.get_webview(&label) {
-        webview.close().map_err(|e| e.to_string())?;
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.close();
     }
     Ok(())
 }
@@ -136,7 +140,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            // Force dark appearance on the main window
             #[cfg(target_os = "macos")]
             {
                 if let Some(window) = app.get_webview_window("main") {
